@@ -1,17 +1,17 @@
 package com.bookmyspot.controller;
 
-
 import com.bookmyspot.dto.JwtResponse;
 import com.bookmyspot.dto.LoginRequest;
+import com.bookmyspot.dto.MessageResponse;
 import com.bookmyspot.dto.SignUpRequest;
-
+import com.bookmyspot.model.Role;
+import com.bookmyspot.model.User;
 import com.bookmyspot.repository.RoleRepository;
 import com.bookmyspot.repository.UserRepository;
 import com.bookmyspot.service.JwtService;
-import com.bookmyspot.model.Role;
-import com.bookmyspot.model.User;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -27,92 +27,99 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/auth")
-// This lets our React app (on a different port) call these APIs
 @CrossOrigin(origins = "*", maxAge = 3600)
 public class AuthController {
 
     @Autowired
-    AuthenticationManager authenticationManager; // The "boss" of authentication
+    private AuthenticationManager authenticationManager;
 
     @Autowired
-    UserRepository userRepository; // To save/find users
+    private UserRepository userRepository;
 
     @Autowired
-    RoleRepository roleRepository; // To find roles
+    private RoleRepository roleRepository;
 
     @Autowired
-    PasswordEncoder passwordEncoder; // To hash passwords
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
-    JwtService jwtService; // Our "Key Maker"
-
-    // === The LOGIN Endpoint ===
+    private JwtService jwtService;
 
     @PostMapping("/login")
-    public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest){
+    public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        loginRequest.getUsername(),
+                        loginRequest.getPassword()
+                )
+        );
 
-        // 1. Authenticate the user (check username and password)
-        // This uses our UserDetailsServiceImpl and PasswordEncoder
-        Authentication authentication=authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
-
-        // 2. If successful, generate a JWT token using our JwtService
         String jwt = jwtService.generateToken(loginRequest.getUsername());
 
-        // 3. Get UserDetails to send back to the client
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(item -> item.getAuthority())
                 .collect(Collectors.toList());
 
-        // 4. Find the full User object to get ID and Email
-        User user = userRepository.findByUsername(userDetails.getUsername()).get();
+        User user = userRepository.findByUsername(userDetails.getUsername())
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // 5. Respond with the JWT token and user info (in our DTO)
-        return ResponseEntity.ok(new JwtResponse(jwt,
+        return ResponseEntity.ok(new JwtResponse(
+                jwt,
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
-                roles));
-
+                roles
+        ));
     }
 
-    // === The REGISTER Endpoint ===
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@Valid @RequestBody SignUpRequest signUpRequest) {
-
-        // 1. Check if username is already taken
         if (userRepository.existsByUsername(signUpRequest.getUsername())) {
-            return ResponseEntity.badRequest().body("Error: Username is already taken!");
+            return ResponseEntity
+                    .badRequest()
+                    .body(new MessageResponse("Error: Username is already taken!"));
         }
 
-        // 2. Check if email is already in use
         if (userRepository.existsByEmail(signUpRequest.getEmail())) {
-            return ResponseEntity.badRequest().body("Error: Email is already in use!");
+            return ResponseEntity
+                    .badRequest()
+                    .body(new MessageResponse("Error: Email is already in use!"));
         }
 
-        // 3. Create new user's account
         User user = new User();
         user.setUsername(signUpRequest.getUsername());
         user.setEmail(signUpRequest.getEmail());
-        user.setPassword(passwordEncoder.encode(signUpRequest.getPassword())); // Hash the password!
+        user.setPassword(passwordEncoder.encode(signUpRequest.getPassword()));
 
-        // 4. Assign the default role "ROLE_USER"
         Set<Role> roles = new HashSet<>();
         Role userRole = roleRepository.findByName("ROLE_USER")
-                .orElseThrow(() -> new RuntimeException("Error: Role 'ROLE_USER' is not found."));
+                .orElseThrow(() -> new RuntimeException("Error: Role ROLE_USER not found"));
         roles.add(userRole);
         user.setRoles(roles);
 
-        // 5. Save the user to the database
         userRepository.save(user);
 
-        return ResponseEntity.ok("User registered successfully!");
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(new MessageResponse("User registered successfully!"));
     }
 
-
-
-
-
-
+    @GetMapping("/validate")
+    public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            try {
+                String username = jwtService.extractUsername(token);
+                return ResponseEntity.ok(new MessageResponse("Token is valid for user: " + username));
+            } catch (Exception e) {
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(new MessageResponse("Invalid token"));
+            }
+        }
+        return ResponseEntity
+                .badRequest()
+                .body(new MessageResponse("Missing or invalid Authorization header"));
+    }
 }
