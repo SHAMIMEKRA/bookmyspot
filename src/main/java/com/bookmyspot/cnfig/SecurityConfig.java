@@ -21,7 +21,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity(prePostEnabled = true)
+
 public class SecurityConfig {
 
     @Autowired
@@ -41,7 +42,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/events/**").authenticated()
+                        .requestMatchers("/api/events/**").permitAll()
                         .requestMatchers("/api/bookings/**").authenticated()
                         .anyRequest().authenticated()
                 )

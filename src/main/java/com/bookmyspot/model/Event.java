@@ -53,6 +53,9 @@ public class Event {
     @Column(name = "ticket_price")
     private Double ticketPrice;
 
+    @Column(name = "image_url")
+    private String imageUrl;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "creator_id", nullable = false)
     private User creator;
